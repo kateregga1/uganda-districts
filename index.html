@@ -11,55 +11,39 @@
             margin: 0;
             font-family: Arial, sans-serif;
         }
-
         #container {
             display: flex;
             height: 100vh;
         }
-
-        /* ---------- SIDEBAR ---------- */
         #sidebar {
             width: 300px;
             padding: 16px;
             border-right: 1px solid #ddd;
             background: #f7f7f9;
-            overflow-y: auto;
         }
-
-        #sidebar h2 {
-            margin-top: 0;
-        }
-
+        h2 { margin-top: 0; }
         input, select, button {
             width: 100%;
             padding: 8px;
             margin-bottom: 10px;
             font-size: 14px;
         }
-
         button {
             background: #2563eb;
             color: white;
             border: none;
             cursor: pointer;
         }
-
         button:hover {
             background: #1e4fd3;
         }
-
-        /* ---------- MAP ---------- */
-        #map {
-            flex: 1;
-        }
-
-        /* ---------- LABELS ---------- */
+        #map { flex: 1; }
         .district-label {
             background: white;
             padding: 2px 4px;
             border-radius: 3px;
             font-size: 11px;
-            border: 1px solid #999;
+            border: 1px solid #777;
         }
     </style>
 
@@ -69,15 +53,12 @@
 
 <div id="container">
 
-    <!-- ---------- SIDEBAR UI ---------- -->
     <div id="sidebar">
         <h2>Uganda District Map</h2>
 
-        <!-- Search box -->
         <input type="text" id="searchInput" placeholder="Search district…" />
         <button id="searchBtn">Search</button>
 
-        <!-- Dropdown -->
         <select id="districtSelect">
             <option value="">-- Select District --</option>
         </select>
@@ -86,7 +67,6 @@
         <div id="info">Click or search for a district.</div>
     </div>
 
-    <!-- ---------- MAP ---------- -->
     <div id="map"></div>
 
 </div>
@@ -94,7 +74,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-    // Initialize the map
     var map = L.map('map').setView([1.4, 32.3], 7);
 
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -102,89 +81,115 @@
     }).addTo(map);
 
     let districtLayer;
-    let labelsLayer = L.layerGroup().addTo(map);
+    let selectedLayer = null;
+    let selectedLabel = null;
 
     const searchInput = document.getElementById("searchInput");
     const searchBtn = document.getElementById("searchBtn");
     const districtSelect = document.getElementById("districtSelect");
     const infoDiv = document.getElementById("info");
 
-    // ---------- UPDATE SIDEBAR ----------
+    // ---------- Default style ----------
+    function defaultStyle() {
+        return {
+            weight: 1,
+            color: "#1d4ed8",
+            fillColor: "#60a5fa",
+            fillOpacity: 0.35
+        };
+    }
+
+    // ---------- Highlight selected district ----------
+    function selectedStyle() {
+        return {
+            weight: 3,
+            color: "#d97706",
+            fillColor: "#f59e0b",
+            fillOpacity: 0.55
+        };
+    }
+
+    // ---------- Update sidebar ----------
     function updateSidebar(props) {
         infoDiv.innerHTML = `
             <b>District:</b> ${props.d}<br>
-            (Add more attributes later if needed)
         `;
     }
 
-    // ---------- ZOOM TO DISTRICT ----------
-    function focusOnLayer(layer) {
-        if (!layer) return;
-        map.fitBounds(layer.getBounds(), { padding: [20, 20] });
-        layer.openPopup();
-        updateSidebar(layer.feature.properties);
+    // ---------- Show label only for selected district ----------
+    function showLabel(layer) {
+        if (selectedLabel) map.removeLayer(selectedLabel);
+
+        const center = layer.getBounds().getCenter();
+        const name = layer.feature.properties.d;
+
+        selectedLabel = L.marker(center, {
+            icon: L.divIcon({
+                className: "district-label",
+                html: name
+            })
+        }).addTo(map);
     }
 
-    // ---------- LOAD GEOJSON ----------
+    // ---------- Clear previous highlights ----------
+    function clearPreviousSelection() {
+        if (selectedLayer) {
+            districtLayer.resetStyle(selectedLayer);
+        }
+        if (selectedLabel) {
+            map.removeLayer(selectedLabel);
+            selectedLabel = null;
+        }
+    }
+
+    // ---------- Apply selection ----------
+    function focusOnLayer(layer) {
+        clearPreviousSelection();
+
+        selectedLayer = layer;
+        layer.setStyle(selectedStyle());
+
+        showLabel(layer);
+        updateSidebar(layer.feature.properties);
+
+        map.fitBounds(layer.getBounds(), { padding: [20, 20] });
+        layer.openPopup();
+    }
+
+    // ---------- Load GeoJSON ----------
     fetch("districts.geojson")
         .then(res => res.json())
         .then(data => {
-
-            // Styling
-            function style(feature) {
-                return {
-                    weight: 1,
-                    color: "#1d4ed8",
-                    fillColor: "#60a5fa",
-                    fillOpacity: 0.35
-                };
-            }
 
             function onEachFeature(feature, layer) {
                 const name = feature.properties.d;
 
                 layer.bindPopup(`<b>${name}</b>`);
 
-                // Highlight effects
-                layer.on("mouseover", function () {
-                    layer.setStyle({
-                        weight: 3,
-                        fillOpacity: 0.5
-                    });
-                });
-
-                layer.on("mouseout", function () {
-                    layer.setStyle({
-                        weight: 1,
-                        fillOpacity: 0.35
-                    });
-                });
-
                 layer.on("click", function () {
                     focusOnLayer(layer);
                 });
+
+                // Hover effect (only when not selected)
+                layer.on("mouseover", function () {
+                    if (layer !== selectedLayer) {
+                        layer.setStyle({ weight: 3, fillOpacity: 0.5 });
+                    }
+                });
+
+                layer.on("mouseout", function () {
+                    if (layer !== selectedLayer) {
+                        districtLayer.resetStyle(layer);
+                    }
+                });
             }
 
-            // Add districts to map
             districtLayer = L.geoJSON(data, {
-                style: style,
+                style: defaultStyle,
                 onEachFeature: onEachFeature
             }).addTo(map);
 
-            // -------- ADD LABELS --------
-            districtLayer.eachLayer(function (layer) {
-                const center = layer.getBounds().getCenter();
-                const name = layer.feature.properties.d;
-
-                const label = L.divIcon({
-                    className: "district-label",
-                    html: name
-                });
-
-                L.marker(center, { icon: label }).addTo(labelsLayer);
-            });
-
-            // -------- POPULATE DROPDOWN --------
+            // Populate dropdown
             data.features.forEach(f => {
                 const opt = document.createElement("option");
                 opt.value = f.properties.d;
@@ -192,7 +197,7 @@
                 districtSelect.appendChild(opt);
             });
 
-            // -------- DROPDOWN SELECT EVENT --------
+            // Dropdown event
             districtSelect.onchange = function () {
                 const selected = this.value;
                 districtLayer.eachLayer(layer => {
@@ -202,7 +207,7 @@
                 });
             };
 
-            // -------- SEARCH FUNCTION --------
+            // Search function
             function searchDistrict() {
                 const query = searchInput.value.trim().toLowerCase();
                 if (!query) return;
